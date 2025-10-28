@@ -1,0 +1,16 @@
+name = "kakao-secret-gateway"
+main = "workers/worker.mjs"
+compatibility_date = "2025-10-27"
+account_id = "6e11c99212bde654b35454782104d77d"
+
+[vars]
+# 공개 가능한 값
+PAGES_ORIGIN = "https://bloger-yeo.github.io/"
+ALLOWED_USER_IDS = "12345,67890"
+
+# 보안상 wrangler secrets 사용 권장 (MVP에선 .env → env vars로도 동작)
+# KAKAO_CLIENT_ID
+# KAKAO_CLIENT_SECRET
+# MASTER_KEY_BASE64
+# SESSION_SECRET_BASE64
+# KAKAO_REDIRECT_URI

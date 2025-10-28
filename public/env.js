@@ -1,0 +1,1 @@
+window.ENV={WORKER_ORIGIN:"https://kakao-secret-gateway.bloger-yeo.workers.dev",PAGES_ORIGIN:"https://bloger-yeo.github.io/"};

@@ -1,0 +1,15 @@
+{
+  "name": "secret-blog",
+  "type": "module",
+  "scripts": {
+    "deploy:worker": "node scripts/update-env-from-worker.js",
+    "build:env": "node scripts/generate-env-js.mjs",
+    "build:enc": "node scripts/encrypt-all.mjs",
+    "build": "npm run deploy:worker && npm run build:env && npm run build:enc",
+    "serve": "npx http-server public -p 8080"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "marked": "^12.0.2"
+  }
+}

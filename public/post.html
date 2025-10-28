@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>비밀 글</title>
+<div id="app">Decrypting…</div>
+
+<script src="./env.js"></script>
+<script>
+const { WORKER_ORIGIN } = window.ENV || {};
+const b64ToU8 = (b64)=>Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+
+async function decryptAesGcmRaw(keyBytes, ivBytes, aadStr, ctPlusTagBytes) {
+  const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
+  const pt  = await crypto.subtle.decrypt(
+    { name:'AES-GCM', iv: ivBytes, additionalData: aadStr? new TextEncoder().encode(aadStr): undefined },
+    key,
+    ctPlusTagBytes
+  );
+  return new Uint8Array(pt);
+}
+
+async function loadPost(postId){
+  const enc = await (await fetch(`./enc/${postId}.json`)).json();
+
+  const unwrapRes = await fetch(`${WORKER_ORIGIN}/api/unwrap`, {
+    method:'POST',
+    credentials:'include',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify({ postId, wrappedKey: enc.wrappedKey, aad: enc.aad })
+  });
+  if (unwrapRes.status === 401) { location.href = `${WORKER_ORIGIN}/login`; return; }
+  const { key: keyB64 } = await unwrapRes.json();
+  const K_post = b64ToU8(keyB64);
+
+  const iv = b64ToU8(enc.iv), tag = b64ToU8(enc.tag), ct = b64ToU8(enc.ciphertext);
+  const combined = new Uint8Array(ct.length + tag.length);
+  combined.set(ct,0); combined.set(tag, ct.length);
+
+  const plain = await decryptAesGcmRaw(K_post, iv, enc.aad, combined);
+  const html  = new TextDecoder().decode(plain);
+  document.getElementById('app').innerHTML = html;
+}
+
+const postId = new URL(location).searchParams.get('id');
+loadPost(postId);
+</script>

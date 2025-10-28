@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>비밀 블로그</title>
+
+<h1>비밀 블로그</h1>
+<p><button id="login">카카오 로그인</button></p>
+<ul id="list"></ul>
+
+<script src="./env.js"></script>
+<script>
+const { WORKER_ORIGIN } = window.ENV || {};
+document.getElementById('login').onclick = ()=> location.href = WORKER_ORIGIN + '/login';
+
+fetch('./index.json')
+  .then(r=>r.json())
+  .then(items=>{
+    const ul = document.getElementById('list');
+    items.forEach(({id, title})=>{
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = `./post.html?id=${encodeURIComponent(id)}`;
+      a.textContent = title;
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+  });
+</script>
