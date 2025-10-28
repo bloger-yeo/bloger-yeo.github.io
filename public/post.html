@@ -3,10 +3,75 @@
 <title>비밀 글</title>
 <div id="app">Decrypting…</div>
 
+
+<hr>
+<section id="comments">
+  <h3>댓글</h3>
+  <div id="comment-list">불러오는 중…</div>
+  <div id="comment-form" style="margin-top:8px;">
+    <textarea id="comment-input" rows="4" style="width:100%;" placeholder="댓글을 입력하세요"></textarea>
+    <button id="comment-submit">등록</button>
+  </div>
+</section>
+
 <script src="./env.js"></script>
 <script>
 const { WORKER_ORIGIN } = window.ENV || {};
 const b64ToU8 = (b64)=>Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+
+// (생략) decryptAesGcmRaw, loadPost 등 본문 로딩 함수는 기존 그대로
+
+async function fetchComments(postId){
+  const r = await fetch(`${WORKER_ORIGIN}/api/comments/list?postId=${encodeURIComponent(postId)}`, {
+    credentials:'include'
+  });
+  if (r.status === 401) { location.href = `${WORKER_ORIGIN}/login`; return; }
+  const { items } = await r.json();
+  const box = document.getElementById('comment-list');
+  if (!items.length) { box.textContent = '첫 댓글을 남겨보세요!'; return; }
+  box.innerHTML = items.map(c => `
+    <div class="cmt" style="padding:8px 0;border-bottom:1px solid #eee">
+      <div style="font-size:12px;color:#666">user:${c.user} · ${new Date(c.created_at).toLocaleString()}</div>
+      <div style="white-space:pre-wrap">${escapeHtml(c.content)}</div>
+    </div>
+  `).join('');
+}
+
+async function addComment(postId, content){
+  const r = await fetch(`${WORKER_ORIGIN}/api/comments/add`, {
+    method:'POST',
+    credentials:'include',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify({ postId, content })
+  });
+  if (r.status === 401) { location.href = `${WORKER_ORIGIN}/login`; return; }
+  return r.json();
+}
+
+function escapeHtml(str){
+  return str.replace(/[&<>"']/g, s => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[s]));
+}
+
+// 기존 loadPost 끝에 호출 추가
+async function loadAll(postId){
+  await loadPost(postId);
+  await fetchComments(postId);
+
+  document.getElementById('comment-submit').onclick = async () => {
+    const ta = document.getElementById('comment-input');
+    const text = ta.value.trim();
+    if (!text) return;
+    await addComment(postId, text);
+    ta.value = '';
+    await fetchComments(postId);
+  };
+}
+
+const postId = new URL(location).searchParams.get('id');
+loadAll(postId);
+</script>
 
 async function decryptAesGcmRaw(keyBytes, ivBytes, aadStr, ctPlusTagBytes) {
   const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);

@@ -4,6 +4,11 @@ export default {
       if (url.pathname === '/login')          return login(env);
       if (url.pathname === '/oauth/callback') return callback(req, env);
       if (url.pathname === '/api/unwrap')     return unwrap(req, env);
+
+      // --- 댓글 API 추가 ---
+      if (url.pathname === '/api/comments/add'  && req.method === 'POST') return addComment(req, env);
+      if (url.pathname === '/api/comments/list' && req.method === 'GET')  return listComments(req, env);
+
       if (req.method === 'OPTIONS')           return new Response(null, { headers: preflight(env, req) });
       return new Response('ok', { headers: cors(env, req) });
     }
@@ -116,4 +121,105 @@ export default {
     const K_post = await decryptGcm(master, iv, aad, combined);
     return new Response(JSON.stringify({ key: u8ToB64(K_post) }), { headers:{ 'content-type':'application/json', ...cors(env, req) }});
   }
+
   
+// ===== 댓글: 공통 유틸 =====
+function requireSessionOr401(req, env) {
+  const cookie = req.headers.get('cookie')||'';
+  const m = /SESS=([^;]+)/.exec(cookie);
+  if (!m) return { err: new Response('Unauthorized', { status:401, headers: cors(env, req) }) };
+  return { token: m[1] };
+}
+
+async function verifySession(token, env, req) {
+  const [payload, mac] = token.split('.');
+  const expect = await signHmac(env.SESSION_SECRET_BASE64, payload);
+  if (expect !== mac) return { err: new Response('Unauthorized', { status:401, headers: cors(env, req) }) };
+  const obj = JSON.parse(atob(payload));
+  if (Date.now()/1000 > obj.exp) return { err: new Response('Expired', { status:401, headers: cors(env, req) }) };
+  return { session: obj }; // { sub: kakaoUserId, exp: ... }
+}
+
+async function gh(env, path, init={}) {
+  const headers = init.headers || {};
+  headers['Authorization'] = `Bearer ${env.GH_TOKEN}`;
+  headers['Accept'] = 'application/vnd.github+json';
+  headers['User-Agent'] = 'kakao-comments-worker';
+  return fetch(`https://api.github.com${path}`, { ...init, headers });
+}
+
+async function ensureIssueForPost(env, postId) {
+  // 1) 라벨로 이슈 찾기 (state=all 포함)
+  const label = `post:${postId}`;
+  const list = await gh(env, `/repos/${env.GH_OWNER}/${env.GH_REPO}/issues?labels=${encodeURIComponent(label)}&state=all&per_page=1`)
+    .then(r=>r.json());
+  if (Array.isArray(list) && list.length) return list[0].number;
+
+  // 2) 없으면 생성
+  const created = await gh(env, `/repos/${env.GH_OWNER}/${env.GH_REPO}/issues`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: `Comments for post:${postId}`,
+      labels: [label]
+    })
+  }).then(r=>r.json());
+  return created.number;
+}
+
+// ===== 댓글: 작성 =====
+async function addComment(req, env) {
+  const sess = requireSessionOr401(req, env);
+  if (sess.err) return sess.err;
+  const ver = await verifySession(sess.token, env, req);
+  if (ver.err) return ver.err;
+
+  const { postId, content } = await req.json();
+  if (!postId || !content || content.trim().length === 0) {
+    return new Response('Bad Request', { status:400, headers: cors(env, req) });
+  }
+
+  // 포스트별 이슈 번호 확보
+  const issueNumber = await ensureIssueForPost(env, postId);
+
+  // 유저 표시는 최소한으로 (카카오 user id만). 원하면 세션에 닉네임을 추가 저장하도록 확장 가능.
+  const userId = ver.session.sub;
+  const body = `**user:${userId}**\n\n${content}`;
+
+  await gh(env, `/repos/${env.GH_OWNER}/${env.GH_REPO}/issues/${issueNumber}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ body })
+  });
+
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'content-type':'application/json', ...cors(env, req) }
+  });
+}
+
+// ===== 댓글: 목록 =====
+async function listComments(req, env) {
+  const sess = requireSessionOr401(req, env);
+  if (sess.err) return sess.err;
+  const ver = await verifySession(sess.token, env, req);
+  if (ver.err) return ver.err;
+
+  const url = new URL(req.url);
+  const postId = url.searchParams.get('postId');
+  if (!postId) return new Response('Bad Request', { status:400, headers: cors(env, req) });
+
+  const issueNumber = await ensureIssueForPost(env, postId);
+
+  const comments = await gh(env, `/repos/${env.GH_OWNER}/${env.GH_REPO}/issues/${issueNumber}/comments?per_page=50`)
+    .then(r=>r.json());
+
+  // 필요한 필드만 추출해서 프론트로 전달
+  const items = comments.map(c => ({
+    id: c.id,
+    user: (c.body.match(/^\*\*user:(\d+)\*\*/) || [,'unknown'])[1],
+    content: c.body.replace(/^\*\*user:\d+\*\*\s*\n+/,''),
+    created_at: c.created_at
+  }));
+
+  return new Response(JSON.stringify({ items }), {
+    headers: { 'content-type':'application/json', ...cors(env, req) }
+  });
+}

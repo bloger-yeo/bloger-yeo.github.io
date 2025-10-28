@@ -7,6 +7,8 @@ account_id = "6e11c99212bde654b35454782104d77d"
 # 공개 가능한 값
 PAGES_ORIGIN = "https://bloger-yeo.github.io/"
 ALLOWED_USER_IDS = "12345,67890"
+GH_OWNER = "bloger-yeo"
+GH_REPO = "bloger-yeo.github.io"
 
 # 보안상 wrangler secrets 사용 권장 (MVP에선 .env → env vars로도 동작)
 # KAKAO_CLIENT_ID
